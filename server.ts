@@ -163,13 +163,21 @@ function parseFeedXml(xmlContent: string): ProductItem[] {
   return products;
 }
 
+// Helper to validate Google GenAI API key format
+function isValidGeminiApiKey(key?: string): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  // Standard Google AI Studio API keys begin with 'AIza' and are >= 35 characters
+  return trimmed.startsWith('AIza') && trimmed.length >= 35;
+}
+
 // Configuration endpoint
 app.get('/api/config', (_req: Request, res: Response) => {
   res.json({
     hasTelegramToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     hasChannelId: Boolean(process.env.TELEGRAM_CHANNEL_ID),
     channelId: process.env.TELEGRAM_CHANNEL_ID || '',
-    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasGeminiKey: isValidGeminiApiKey(process.env.GEMINI_API_KEY),
     feedUrl: process.env.FEED_URL || '',
     automationRunning,
     automationIntervalMinutes
@@ -230,21 +238,27 @@ app.post('/api/feed/fetch', async (req: Request, res: Response) => {
   }
 });
 
-// Gemini AI Telegram copy generator
-app.post('/api/generate-copy', async (req: Request, res: Response) => {
-  const { title, description, language = 'ro', customRules } = req.body;
-
-  if (!title) {
-    return res.status(400).json({ error: 'Title is required' });
-  }
-
+// Shared Gemini AI copy generation helper
+async function generatePostCopy(params: {
+  title: string;
+  description: string;
+  language?: string;
+  customRules?: string;
+}): Promise<{ caption: string; provider: string; model?: string }> {
+  const { title, description, language = 'ro', customRules } = params;
   const geminiKey = process.env.GEMINI_API_KEY;
 
-  if (geminiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+  if (isValidGeminiApiKey(geminiKey)) {
+    const ai = new GoogleGenAI({
+      apiKey: geminiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
 
-      const promptRo = `
+    const promptRo = `
 Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:
 - Titlu: ${title}
 - Descriere: ${description || 'Calitate superioară, ofertă limitată'}
@@ -252,7 +266,7 @@ Reguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.
 ${customRules ? `Instrucțiuni suplimentare: ${customRules}` : ''}
 `.trim();
 
-      const promptEn = `
+    const promptEn = `
 Create a short, energetic and persuasive Telegram channel post based on this product:
 - Title: ${title}
 - Description: ${description || 'Premium quality, limited time deal'}
@@ -260,17 +274,19 @@ Rules: Use engaging emojis, under 100 words, no links in text.
 ${customRules ? `Additional guidelines: ${customRules}` : ''}
 `.trim();
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: language === 'ro' ? promptRo : promptEn
-      });
+    const prompt = language === 'ro' ? promptRo : promptEn;
 
-      const caption = response.text ? response.text.trim() : '';
-      if (caption) {
-        return res.json({ success: true, caption, provider: 'gemini-2.5-flash' });
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: prompt,
+      });
+      const text = response.text ? response.text.trim() : '';
+      if (text) {
+        return { caption: text, provider: 'gemini', model: 'gemini-flash-latest' };
       }
-    } catch (err: any) {
-      console.warn('Gemini API call failed, using intelligent template:', err?.message || err);
+    } catch {
+      // Fall through to high-converting template fallback seamlessly
     }
   }
 
@@ -289,11 +305,23 @@ ${customRules ? `Additional guidelines: ${customRules}` : ''}
     fallbackCaption = `🔥 HOT DEAL ALERT! 🔥\n\n⚡ ${cleanTitle}\n\n✨ ${summarySnippet || 'Top tier quality at an unbeatable discount!'}\n\n🚀 Limited stock available. Tap the button below to grab yours now! 👇`;
   }
 
+  return { caption: fallbackCaption, provider: 'template_fallback' };
+}
+
+// Gemini AI Telegram copy generator endpoint
+app.post('/api/generate-copy', async (req: Request, res: Response) => {
+  const { title, description, language = 'ro', customRules } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+
+  const result = await generatePostCopy({ title, description, language, customRules });
   res.json({
     success: true,
-    caption: fallbackCaption,
-    provider: 'template_fallback',
-    notice: geminiKey ? undefined : 'GEMINI_API_KEY not configured, using built-in high-converting template.'
+    caption: result.caption,
+    provider: result.provider,
+    model: result.model
   });
 });
 
@@ -476,33 +504,13 @@ app.post('/api/automation/run', async (req: Request, res: Response) => {
     const alreadyPostedIds = new Set(publishedHistory.map(h => h.productId));
     const nextProd = products.find(p => !alreadyPostedIds.has(p.id)) || products[0];
 
-    // Generate Gemini copy
-    let caption = '';
-    const geminiKey = process.env.GEMINI_API_KEY;
-
-    if (geminiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const prompt = `
-Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:
-- Titlu: ${nextProd.title}
-- Descriere: ${nextProd.description}
-Reguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.
-`.trim();
-
-        const geminiRes = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt
-        });
-        caption = geminiRes.text?.trim() || '';
-      } catch (e) {
-        console.warn('Gemini failed during automation run:', e);
-      }
-    }
-
-    if (!caption) {
-      caption = `🔥 SUPER OFERTĂ ZILEI! 🔥\n\n⚡ ${nextProd.title}\n\n✨ ${nextProd.description?.slice(0, 120) || 'Descoperă cel mai nou produs la reducere!'}\n\n🚀 Apasă butonul de mai jos pentru a comanda direct! 👇`;
-    }
+    // Generate copy using unified robust helper
+    const copyResult = await generatePostCopy({
+      title: nextProd.title,
+      description: nextProd.description,
+      language: 'ro'
+    });
+    const caption = copyResult.caption;
 
     // Publish to Telegram
     const token = req.body?.token || process.env.TELEGRAM_BOT_TOKEN;

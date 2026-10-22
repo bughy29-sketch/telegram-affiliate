@@ -17,7 +17,7 @@ export const AiComposer: React.FC<AiComposerProps> = ({
   setCaption,
   onGenerate,
   isGenerating,
-  modelName = 'gemini-2.5-flash'
+  modelName = 'gemini-flash-latest'
 }) => {
   const [language, setLanguage] = useState<'ro' | 'en'>('ro');
   const [tone, setTone] = useState<string>('energetic');

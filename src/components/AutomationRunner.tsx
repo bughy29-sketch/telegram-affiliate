@@ -102,7 +102,7 @@ export const AutomationRunner: React.FC<AutomationRunnerProps> = ({
               3
             </div>
             <div>
-              <p className="text-xs font-semibold text-white">Gemini 2.5 Flash</p>
+              <p className="text-xs font-semibold text-white">Gemini Flash AI</p>
               <p className="text-[10px] text-slate-400">Copy persuasiv emoji</p>
             </div>
           </div>
