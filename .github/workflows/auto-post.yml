@@ -1,0 +1,32 @@
+name: Telegram Affiliate Auto-Post
+
+on:
+  schedule:
+    # Rulează de 3 ori pe zi (la orele 08:00, 14:00 și 20:00 UTC)
+    - cron: '0 8,14,20 * * *'
+  workflow_dispatch: Permite și rularea manuală din tab-ul Actions din GitHub
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setează repository-ul
+        uses: actions/checkout@v4
+
+      - name: Configurează Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalează dependențele
+        run: npm install
+
+      - name: Rulează scriptul de afiliere
+        run: npx tsx scripts/run-workflow.ts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FEED_URL: ${{ secrets.FEED_URL }}
