@@ -14,11 +14,10 @@ jobs:
       - name: Setează repository-ul
         uses: actions/checkout@v4
 
-      - - name: Configurează Node.js
+      - name: Configurează Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          # cache: 'npm' -> Am scos cache-ul ca să nu mai ceară package-lock.json
 
       - name: Instalează dependențele
         run: npm install
