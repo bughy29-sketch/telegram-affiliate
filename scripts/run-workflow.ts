@@ -31,7 +31,6 @@ async function parseFeed(): Promise<Product[]> {
       const link = item.product_aff_link || item.link || "";
       const description = item.product_desc || item.description || "";
       
-      // Preluăm imaginea folosind cheia corectă din feed: product_pic
       const imageUrl = item.product_pic || item.image_link || item.image_url || item.image || item.picture || "";
 
       let formattedAffiliateUrl = typeof link === "string" ? link : "";
@@ -80,11 +79,11 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
-async function generateWithRetry(prompt: string, retries = 3, delay = 3000): Promise<string> {
+async function generateWithRetry(prompt: string, retries = 5, delay = 5000): Promise<string> {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-2.5-flash",
         contents: prompt,
       });
       return response.text || "Super ofertă disponibilă!";
