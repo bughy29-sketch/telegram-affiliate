@@ -25,18 +25,15 @@ async function parseFeed(): Promise<Product[]> {
 
     console.log("STRUCTURĂ XML:", JSON.stringify(result, null, 2).substring(0, 500));
 
-    // Adaptat pentru structura găsită în XML (products.product)
     const items = result.products?.product || result.rss?.channel?.item || result.feed?.entry || [];
     const products: Product[] = [];
 
     for (const item of items) {
-      // Preluăm câmpurile specifice din noul format de feed
       const title = item.product_name || item.title || "Produs";
       const link = item.product_aff_link || item.link || "";
       const description = item.product_desc || item.description || "";
       
       let imageUrl = "";
-      // Verificăm atât enclosure, cât și eventuale câmpuri directe pentru imagini
       if (item.enclosure && item.enclosure["@_url"]) {
         imageUrl = item.enclosure["@_url"];
       } else if (item.image_url) {
@@ -45,7 +42,6 @@ async function parseFeed(): Promise<Product[]> {
         imageUrl = item.image;
       }
 
-      // Dacă linkul afiliat începe cu '//', adăugăm 'https:' în față
       let formattedAffiliateUrl = typeof link === "string" ? link : "";
       if (formattedAffiliateUrl.startsWith("//")) {
         formattedAffiliateUrl = "https:" + formattedAffiliateUrl;
@@ -107,7 +103,7 @@ async function run() {
   const prompt = `Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:\n- Titlu: ${prod.title}\n- Descriere: ${prod.description}\nReguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
     contents: prompt,
   });
 
