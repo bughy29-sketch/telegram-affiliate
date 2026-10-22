@@ -1,0 +1,40 @@
+
+name: Automatizare Telegram Affiliate
+
+# 1. CÂND RULEAZĂ WORKFLOW-UL?
+on:
+  schedule:
+    - cron: '0 */4 * * *'  # Rulează automat la fiecare 4 ore
+  workflow_dispatch:       # Îți permite să declanșezi rularea manual din GitHub
+
+# 2. CE FACE WORKFLOW-UL?
+jobs:
+  run-script:
+    runs-on: ubuntu-latest  # Rulează pe o mașină virtuală cu Linux oferită gratuit de GitHub
+
+    steps:
+      # Pasul A: Descarcă codul din repository
+      - name: Checkout cod
+        uses: actions/checkout@v4
+
+      # Pasul B: Instalează mediul Node.js 22
+      - name: Configurare Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      # Pasul C: Instalează dependențele din package.json
+      - name: Instalare dependențe
+        run: npm ci
+
+      # Pasul D: Rulează automatizarea Telegram Affiliate
+      - name: Executare Workflow Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FEED_URL: ${{ secrets.FEED_URL }}
+        run: |
+          npx tsx scripts/run-workflow.ts
+

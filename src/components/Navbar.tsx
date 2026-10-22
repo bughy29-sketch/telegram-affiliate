@@ -11,6 +11,7 @@ interface NavbarProps {
   setActiveTab: (tab: 'feed' | 'composer' | 'automation' | 'history') => void;
   totalProducts: number;
   publishedCount: number;
+  workflowsCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   totalProducts,
   publishedCount,
+  workflowsCount = 0,
 }) => {
   return (
     <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
@@ -85,7 +87,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Play className="w-3.5 h-3.5" />
-              Auto Workflow (main.py)
+              Workflows & Auto
+              {workflowsCount > 0 && (
+                <span className="ml-1 text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded-full font-bold">
+                  {workflowsCount}
+                </span>
+              )}
             </button>
 
             <button

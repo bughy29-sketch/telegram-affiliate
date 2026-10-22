@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ProductItem, PublishLog, BotConfig } from './types';
+import { ProductItem, PublishLog, BotConfig, Workflow } from './types';
 import { Navbar } from './components/Navbar';
 import { FeedSection } from './components/FeedSection';
 import { AiComposer } from './components/AiComposer';
@@ -7,6 +7,7 @@ import { TelegramSimulator } from './components/TelegramSimulator';
 import { AutomationRunner } from './components/AutomationRunner';
 import { HistoryLog } from './components/HistoryLog';
 import { SettingsModal } from './components/SettingsModal';
+import { CreateWorkflowModal } from './components/CreateWorkflowModal';
 
 export const App: React.FC = () => {
   const [config, setConfig] = useState<BotConfig | null>(null);
@@ -26,6 +27,12 @@ export const App: React.FC = () => {
   const [isPublishingId, setIsPublishingId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Workflows state
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [isCreateWorkflowOpen, setIsCreateWorkflowOpen] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
+  const [isRunningWorkflowId, setIsRunningWorkflowId] = useState<string | null>(null);
 
   // Automation runner logs matching main.py stdout
   const [automationLogs, setAutomationLogs] = useState<string[]>([

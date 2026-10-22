@@ -39,10 +39,99 @@ interface PublishLog {
   telegramMessageId?: number;
 }
 
+interface Workflow {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  feedUrl?: string;
+  categoryFilter?: string;
+  keywordFilter?: string;
+  excludeKeywordFilter?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  selectionStrategy: 'fifo' | 'random' | 'highest_price';
+  language: 'ro' | 'en' | 'es' | 'fr' | 'de';
+  tone: 'energetic' | 'flash_deal' | 'premium' | 'tech_specs' | 'custom';
+  customInstructions?: string;
+  includePriceInCaption: boolean;
+  emojiLevel: 'high' | 'normal' | 'minimal';
+  channelId?: string;
+  buttonText: string;
+  scheduleType: 'manual' | 'interval' | 'cron';
+  intervalMinutes: number;
+  cronExpression?: string;
+  lastRunAt?: string;
+  totalRuns: number;
+  successfulRuns: number;
+  createdAt: string;
+}
+
 const publishedHistory: PublishLog[] = [];
 let automationRunning = false;
 let automationIntervalMinutes = 0;
 let automationTimer: NodeJS.Timeout | null = null;
+
+// Initial workflows
+const workflows: Workflow[] = [
+  {
+    id: 'wf-default',
+    name: '⚡ Flux Standard Telegram (main.py)',
+    description: 'Preia cele mai recente oferte din feed, generează text persuasiv cu Gemini AI și publică automat în canal.',
+    isActive: true,
+    selectionStrategy: 'fifo',
+    language: 'ro',
+    tone: 'energetic',
+    includePriceInCaption: true,
+    emojiLevel: 'high',
+    buttonText: '🛒 Vezi Oferta / Cumpără',
+    scheduleType: 'interval',
+    intervalMinutes: 240,
+    cronExpression: '0 */4 * * *',
+    totalRuns: 0,
+    successfulRuns: 0,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'wf-flash',
+    name: '🔥 Oferte Flash & Reduceri Limitate',
+    description: 'Focus pe urgență, stoc limitat și apeluri persuasive la acțiune pentru promoții cu impact vizual maxim.',
+    isActive: true,
+    selectionStrategy: 'random',
+    language: 'ro',
+    tone: 'flash_deal',
+    customInstructions: 'Subliniază ideea de stoc limitat și expirare rapidă a ofertei. Creează FOMO pozitiv.',
+    includePriceInCaption: true,
+    emojiLevel: 'high',
+    buttonText: '⚡ Profită de Ofertă Acum',
+    scheduleType: 'interval',
+    intervalMinutes: 120,
+    cronExpression: '0 */2 * * *',
+    totalRuns: 0,
+    successfulRuns: 0,
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'wf-tech',
+    name: '💻 Top Gadgets & Tehnologie Premium',
+    description: 'Filtrează produse de tip tech/audio/monitoare și creează prezentări stilate, axate pe specificații și calitate.',
+    isActive: true,
+    categoryFilter: 'Audio & Gadgets,Periferice PC,Monitoare,Smartwatches',
+    selectionStrategy: 'highest_price',
+    language: 'ro',
+    tone: 'tech_specs',
+    customInstructions: 'Evidențiază specificațiile cheie, calitatea materialelor și performanța de top.',
+    includePriceInCaption: true,
+    emojiLevel: 'normal',
+    buttonText: '🔍 Detalii & Comandă',
+    scheduleType: 'cron',
+    intervalMinutes: 360,
+    cronExpression: '0 9,15,20 * * *',
+    totalRuns: 0,
+    successfulRuns: 0,
+    createdAt: new Date().toISOString()
+  }
+];
 
 // Built-in sample Romanian & International affiliate deal feeds for testing/demo
 const SAMPLE_PRODUCTS: ProductItem[] = [
@@ -238,14 +327,48 @@ app.post('/api/feed/fetch', async (req: Request, res: Response) => {
   }
 });
 
+// Helper to extract numeric price value for filtering and sorting
+function extractNumericPrice(priceStr?: string): number {
+  if (!priceStr) return 0;
+  // Handle formats like "1.499,99 Lei", "1499.99 RON", "$129.99", "949 Lei"
+  const cleaned = priceStr.replace(/[^0-9.,]/g, '').trim();
+  if (!cleaned) return 0;
+  // If format is 1.499,99
+  if (cleaned.includes('.') && cleaned.includes(',')) {
+    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+  }
+  // If format is 1,499.99
+  if (cleaned.includes(',') && cleaned.lastIndexOf(',') < cleaned.lastIndexOf('.')) {
+    return parseFloat(cleaned.replace(/,/g, ''));
+  }
+  // If format is 1499,99
+  if (cleaned.includes(',') && !cleaned.includes('.')) {
+    return parseFloat(cleaned.replace(',', '.'));
+  }
+  return parseFloat(cleaned) || 0;
+}
+
 // Shared Gemini AI copy generation helper
 async function generatePostCopy(params: {
   title: string;
   description: string;
+  price?: string;
   language?: string;
+  tone?: 'energetic' | 'flash_deal' | 'premium' | 'tech_specs' | 'custom';
   customRules?: string;
+  includePrice?: boolean;
+  emojiLevel?: 'high' | 'normal' | 'minimal';
 }): Promise<{ caption: string; provider: string; model?: string }> {
-  const { title, description, language = 'ro', customRules } = params;
+  const {
+    title,
+    description,
+    price,
+    language = 'ro',
+    tone = 'energetic',
+    customRules,
+    includePrice = true,
+    emojiLevel = 'high'
+  } = params;
   const geminiKey = process.env.GEMINI_API_KEY;
 
   if (isValidGeminiApiKey(geminiKey)) {
@@ -258,20 +381,72 @@ async function generatePostCopy(params: {
       },
     });
 
+    const toneDescriptions: Record<string, { ro: string; en: string }> = {
+      energetic: {
+        ro: 'Ton entuziasmant, foarte dinamic și persuasiv, stil prezentare de super-ofertă.',
+        en: 'Enthusiastic, energetic and persuasive tone, high-converting deal style.'
+      },
+      flash_deal: {
+        ro: 'Ton de ofertă fulger (Flash Deal): pune accent pe urgență, timp limitat și stoc redus.',
+        en: 'Flash deal tone: emphasize urgency, limited time, and low stock.'
+      },
+      premium: {
+        ro: 'Ton elegant, minimalist și sofisticat: accent pe calitate premium, rafinament și valoare.',
+        en: 'Elegant, minimalist, sophisticated tone: focus on premium build, prestige, and luxury.'
+      },
+      tech_specs: {
+        ro: 'Ton tech-geek / profesionist: evidențiază specificațiile cheie, performanța hardware și productivitatea.',
+        en: 'Tech-enthusiast / pro tone: highlight specs, hardware performance, and reliability.'
+      },
+      custom: {
+        ro: customRules || 'Ton profesional și persuasiv.',
+        en: customRules || 'Professional and persuasive tone.'
+      }
+    };
+
+    const emojiInstruction: Record<string, { ro: string; en: string }> = {
+      high: {
+        ro: 'Folosește multe emoji-uri atractive la început de rânduri.',
+        en: 'Use plenty of eye-catching emojis throughout the post.'
+      },
+      normal: {
+        ro: 'Folosește 3-4 emoji-uri bine alese și echilibrate.',
+        en: 'Use 3-4 tasteful and relevant emojis.'
+      },
+      minimal: {
+        ro: 'Folosește maxim 1-2 emoji-uri subtile, păstrează stilul aerisit.',
+        en: 'Use at most 1-2 subtle emojis, keep the style minimal.'
+      }
+    };
+
+    const currentTone = toneDescriptions[tone] || toneDescriptions.energetic;
+    const currentEmoji = emojiInstruction[emojiLevel] || emojiInstruction.high;
+    const priceText = includePrice && price ? (language === 'ro' ? `- Preț promoțional: ${price}\n` : `- Deal Price: ${price}\n`) : '';
+
     const promptRo = `
-Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:
+Creează o postare captivantă și persuasivă pentru Telegram pe baza acestui produs:
 - Titlu: ${title}
 - Descriere: ${description || 'Calitate superioară, ofertă limitată'}
-Reguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.
-${customRules ? `Instrucțiuni suplimentare: ${customRules}` : ''}
+${priceText}
+Reguli stricte:
+1. ${currentTone.ro}
+2. ${currentEmoji.ro}
+3. Lungime: sub 100 de cuvinte.
+4. FĂRĂ linkuri sau adrese web în text (utilizatorul va apăsa butonul inline).
+${customRules ? `5. Instrucțiuni suplimentare obligatorii: ${customRules}` : ''}
 `.trim();
 
     const promptEn = `
-Create a short, energetic and persuasive Telegram channel post based on this product:
+Create a compelling and persuasive Telegram channel post based on this product:
 - Title: ${title}
 - Description: ${description || 'Premium quality, limited time deal'}
-Rules: Use engaging emojis, under 100 words, no links in text.
-${customRules ? `Additional guidelines: ${customRules}` : ''}
+${priceText}
+Strict rules:
+1. ${currentTone.en}
+2. ${currentEmoji.en}
+3. Length: under 100 words.
+4. NO links or URLs inside the text (the user will tap the inline action button).
+${customRules ? `5. Mandatory extra rules: ${customRules}` : ''}
 `.trim();
 
     const prompt = language === 'ro' ? promptRo : promptEn;
@@ -290,33 +465,253 @@ ${customRules ? `Additional guidelines: ${customRules}` : ''}
     }
   }
 
-  // Fallback copy generator matching original spirit:
-  // Short, energetic, persuasive, with emojis, under 100 words, no links in text
+  // Fallback copy generator matching original spirit and tone
   const cleanTitle = title.replace(/[^\w\s-ăîâșțĂÎÂȘȚ.,]/g, '').trim();
   const summarySnippet = (description || '')
     .slice(0, 140)
     .replace(/[^\w\s-ăîâșțĂÎÂȘȚ.,]/g, '')
     .trim();
+  const priceSnippet = includePrice && price ? `\n💰 Preț: ${price}` : '';
 
   let fallbackCaption = '';
   if (language === 'ro') {
-    fallbackCaption = `🔥 OFERTĂ SPECIALĂ ZILEI! 🔥\n\n⚡ ${cleanTitle}\n\n✨ ${summarySnippet || 'Un produs de top care merită atenția ta!'}\n\n🚀 Stoc limitat la preț promoțional. Apasă butonul de mai jos pentru a prinde oferta! 👇`;
+    if (tone === 'flash_deal') {
+      fallbackCaption = `⚡ ALERTĂ OFERTĂ FLASH! ⚡\n\n🔥 ${cleanTitle}\n${priceSnippet}\n\n⏳ Stocul se epuizează rapid! ${summarySnippet || 'Prinde reducerea înainte să expire.'}\n\n👇 Apasă butonul de mai jos pentru comanda directă:`;
+    } else if (tone === 'tech_specs') {
+      fallbackCaption = `🚀 GADGET RECOMANDAT 🚀\n\n💻 ${cleanTitle}\n${priceSnippet}\n\n⚙️ Performanță de vârf: ${summarySnippet || 'Tehnologie avansată și fiabilitate garantată.'}\n\n👇 Vezi specificațiile complete și oferta:`;
+    } else if (tone === 'premium') {
+      fallbackCaption = `✨ RECOMANDARE PREMIUM ✨\n\n💎 ${cleanTitle}\n${priceSnippet}\n\nDesign desăvârșit și calitate excepțională. ${summarySnippet}\n\n👇 Descoperă produsul mai jos:`;
+    } else {
+      fallbackCaption = `🔥 OFERTĂ SPECIALĂ A ZILEI! 🔥\n\n⚡ ${cleanTitle}\n${priceSnippet}\n\n✨ ${summarySnippet || 'Un produs de top care merită atenția ta!'}\n\n🚀 Stoc promoțional limitat. Apasă butonul de mai jos pentru a prinde oferta! 👇`;
+    }
   } else {
-    fallbackCaption = `🔥 HOT DEAL ALERT! 🔥\n\n⚡ ${cleanTitle}\n\n✨ ${summarySnippet || 'Top tier quality at an unbeatable discount!'}\n\n🚀 Limited stock available. Tap the button below to grab yours now! 👇`;
+    fallbackCaption = `🔥 HOT DEAL ALERT! 🔥\n\n⚡ ${cleanTitle}\n${priceSnippet ? `\n💰 Price: ${price}` : ''}\n\n✨ ${summarySnippet || 'Top tier quality at an unbeatable discount!'}\n\n🚀 Limited stock available. Tap the button below to grab yours now! 👇`;
   }
 
   return { caption: fallbackCaption, provider: 'template_fallback' };
 }
 
+// Core Workflow Execution Engine
+async function executeWorkflow(
+  workflow: Workflow,
+  overrides?: { token?: string; channelId?: string; feedUrl?: string }
+): Promise<{
+  success: boolean;
+  product?: ProductItem;
+  caption?: string;
+  simulated?: boolean;
+  log?: PublishLog;
+  error?: string;
+}> {
+  const targetFeedUrl = overrides?.feedUrl || workflow.feedUrl || process.env.FEED_URL;
+  let products: ProductItem[] = [];
+
+  if (!targetFeedUrl || targetFeedUrl === 'demo') {
+    products = SAMPLE_PRODUCTS;
+  } else {
+    try {
+      const feedRes = await fetch(targetFeedUrl, {
+        headers: { 'User-Agent': 'TelegramAffiliateBot/1.0 (+https://t.me)' }
+      });
+      if (feedRes.ok) {
+        const text = await feedRes.text();
+        products = parseFeedXml(text);
+      }
+    } catch (e) {
+      console.warn('Feed fetch failed, using sample items:', e);
+    }
+    if (products.length === 0) {
+      products = SAMPLE_PRODUCTS;
+    }
+  }
+
+  if (products.length === 0) {
+    throw new Error('Niciun produs găsit în feed-ul specificat.');
+  }
+
+  // 1. Filter by category
+  let filtered = [...products];
+  if (workflow.categoryFilter && workflow.categoryFilter.trim() !== '') {
+    const cats = workflow.categoryFilter
+      .split(',')
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+    if (cats.length > 0) {
+      const matched = filtered.filter((p) => {
+        const pCat = (p.category || '').toLowerCase();
+        return cats.some((cat) => pCat.includes(cat));
+      });
+      if (matched.length > 0) {
+        filtered = matched;
+      }
+    }
+  }
+
+  // 2. Filter by keyword
+  if (workflow.keywordFilter && workflow.keywordFilter.trim() !== '') {
+    const words = workflow.keywordFilter
+      .split(',')
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean);
+    if (words.length > 0) {
+      const matched = filtered.filter((p) => {
+        const fullText = `${p.title} ${p.description}`.toLowerCase();
+        return words.some((word) => fullText.includes(word));
+      });
+      if (matched.length > 0) {
+        filtered = matched;
+      }
+    }
+  }
+
+  // 3. Exclude negative keywords
+  if (workflow.excludeKeywordFilter && workflow.excludeKeywordFilter.trim() !== '') {
+    const negWords = workflow.excludeKeywordFilter
+      .split(',')
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean);
+    if (negWords.length > 0) {
+      const clean = filtered.filter((p) => {
+        const fullText = `${p.title} ${p.description}`.toLowerCase();
+        return !negWords.some((neg) => fullText.includes(neg));
+      });
+      if (clean.length > 0) {
+        filtered = clean;
+      }
+    }
+  }
+
+  // 4. Price range filter
+  if (workflow.minPrice !== undefined || workflow.maxPrice !== undefined) {
+    const priceFiltered = filtered.filter((p) => {
+      const numPrice = extractNumericPrice(p.price);
+      if (numPrice === 0) return true; // Keep items with unparsed price
+      if (workflow.minPrice !== undefined && numPrice < workflow.minPrice) return false;
+      if (workflow.maxPrice !== undefined && numPrice > workflow.maxPrice) return false;
+      return true;
+    });
+    if (priceFiltered.length > 0) {
+      filtered = priceFiltered;
+    }
+  }
+
+  // 5. Exclude already posted products
+  const alreadyPostedIds = new Set(publishedHistory.map((h) => h.productId));
+  let candidatePool = filtered.filter((p) => !alreadyPostedIds.has(p.id));
+  if (candidatePool.length === 0) {
+    // If all items were posted, recycle the pool
+    candidatePool = filtered;
+  }
+
+  // 6. Apply Selection Strategy
+  let selectedProduct: ProductItem;
+  if (workflow.selectionStrategy === 'random') {
+    const randomIndex = Math.floor(Math.random() * candidatePool.length);
+    selectedProduct = candidatePool[randomIndex];
+  } else if (workflow.selectionStrategy === 'highest_price') {
+    const sorted = [...candidatePool].sort(
+      (a, b) => extractNumericPrice(b.price) - extractNumericPrice(a.price)
+    );
+    selectedProduct = sorted[0];
+  } else {
+    // FIFO (Queue order)
+    selectedProduct = candidatePool[0];
+  }
+
+  // 7. Generate Copy with AI
+  const copyResult = await generatePostCopy({
+    title: selectedProduct.title,
+    description: selectedProduct.description,
+    price: selectedProduct.price,
+    language: workflow.language,
+    tone: workflow.tone,
+    customRules: workflow.customInstructions,
+    includePrice: workflow.includePriceInCaption,
+    emojiLevel: workflow.emojiLevel
+  });
+  const caption = copyResult.caption;
+
+  // 8. Publish to Telegram
+  const token = overrides?.token || process.env.TELEGRAM_BOT_TOKEN;
+  const channelId = overrides?.channelId || workflow.channelId || process.env.TELEGRAM_CHANNEL_ID;
+  const buttonText = workflow.buttonText || '🛒 Vezi Oferta / Cumpără';
+
+  const isSimulated = !token || !channelId;
+  let messageId: number | undefined;
+
+  if (!isSimulated) {
+    const keyboard = {
+      inline_keyboard: [[{ text: buttonText, url: selectedProduct.affiliate_url }]]
+    };
+
+    const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: channelId,
+        photo: selectedProduct.image_url,
+        caption,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      })
+    });
+
+    const tgData = await tgRes.json();
+    if (tgData.ok) {
+      messageId = tgData.result.message_id;
+    } else {
+      throw new Error(tgData.description || 'Eroare la trimiterea mesajului pe Telegram');
+    }
+  }
+
+  // Update Workflow Stats
+  workflow.lastRunAt = new Date().toISOString();
+  workflow.totalRuns = (workflow.totalRuns || 0) + 1;
+  workflow.successfulRuns = (workflow.successfulRuns || 0) + 1;
+
+  // Record Publish Log
+  const log: PublishLog = {
+    id: `wf-${workflow.id}-${Date.now()}`,
+    productId: selectedProduct.id,
+    productTitle: selectedProduct.title,
+    channelId: channelId || '@demo_telegram_channel',
+    caption,
+    affiliateUrl: selectedProduct.affiliate_url,
+    imageUrl: selectedProduct.image_url,
+    timestamp: new Date().toISOString(),
+    status: isSimulated ? 'simulated' : 'published',
+    telegramMessageId: messageId
+  };
+  publishedHistory.unshift(log);
+
+  return {
+    success: true,
+    product: selectedProduct,
+    caption,
+    simulated: isSimulated,
+    log
+  };
+}
+
 // Gemini AI Telegram copy generator endpoint
 app.post('/api/generate-copy', async (req: Request, res: Response) => {
-  const { title, description, language = 'ro', customRules } = req.body;
+  const { title, description, price, language = 'ro', tone = 'energetic', customRules, includePrice = true, emojiLevel = 'high' } = req.body;
 
   if (!title) {
     return res.status(400).json({ error: 'Title is required' });
   }
 
-  const result = await generatePostCopy({ title, description, language, customRules });
+  const result = await generatePostCopy({
+    title,
+    description,
+    price,
+    language,
+    tone,
+    customRules,
+    includePrice,
+    emojiLevel
+  });
+
   res.json({
     success: true,
     caption: result.caption,
@@ -324,6 +719,225 @@ app.post('/api/generate-copy', async (req: Request, res: Response) => {
     model: result.model
   });
 });
+
+// WORKFLOW MANAGEMENT ENDPOINTS
+
+// 1. Get all workflows
+app.get('/api/workflows', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    workflows
+  });
+});
+
+// 2. Create new workflow
+app.post('/api/workflows', (req: Request, res: Response) => {
+  try {
+    const data = req.body;
+    if (!data.name || data.name.trim() === '') {
+      return res.status(400).json({ error: 'Numele workflow-ului este obligatoriu.' });
+    }
+
+    const newWorkflow: Workflow = {
+      id: `wf-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      name: data.name.trim(),
+      description: data.description?.trim() || 'Workflow automatizat de afiliere',
+      isActive: data.isActive !== undefined ? Boolean(data.isActive) : true,
+      feedUrl: data.feedUrl?.trim() || undefined,
+      categoryFilter: data.categoryFilter?.trim() || undefined,
+      keywordFilter: data.keywordFilter?.trim() || undefined,
+      excludeKeywordFilter: data.excludeKeywordFilter?.trim() || undefined,
+      minPrice: data.minPrice ? Number(data.minPrice) : undefined,
+      maxPrice: data.maxPrice ? Number(data.maxPrice) : undefined,
+      selectionStrategy: data.selectionStrategy || 'fifo',
+      language: data.language || 'ro',
+      tone: data.tone || 'energetic',
+      customInstructions: data.customInstructions?.trim() || undefined,
+      includePriceInCaption: data.includePriceInCaption !== undefined ? Boolean(data.includePriceInCaption) : true,
+      emojiLevel: data.emojiLevel || 'high',
+      channelId: data.channelId?.trim() || undefined,
+      buttonText: data.buttonText?.trim() || '🛒 Vezi Oferta / Cumpără',
+      scheduleType: data.scheduleType || 'interval',
+      intervalMinutes: Number(data.intervalMinutes) || 120,
+      cronExpression: data.cronExpression?.trim() || '0 */2 * * *',
+      totalRuns: 0,
+      successfulRuns: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    workflows.push(newWorkflow);
+
+    res.status(201).json({
+      success: true,
+      workflow: newWorkflow,
+      message: `Workflow-ul "${newWorkflow.name}" a fost creat cu succes.`
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Update existing workflow
+app.put('/api/workflows/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const index = workflows.findIndex((w) => w.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: 'Workflow-ul nu a fost găsit.' });
+  }
+
+  const existing = workflows[index];
+  const data = req.body;
+
+  const updated: Workflow = {
+    ...existing,
+    name: data.name !== undefined ? data.name.trim() : existing.name,
+    description: data.description !== undefined ? data.description.trim() : existing.description,
+    isActive: data.isActive !== undefined ? Boolean(data.isActive) : existing.isActive,
+    feedUrl: data.feedUrl !== undefined ? data.feedUrl.trim() || undefined : existing.feedUrl,
+    categoryFilter: data.categoryFilter !== undefined ? data.categoryFilter.trim() || undefined : existing.categoryFilter,
+    keywordFilter: data.keywordFilter !== undefined ? data.keywordFilter.trim() || undefined : existing.keywordFilter,
+    excludeKeywordFilter: data.excludeKeywordFilter !== undefined ? data.excludeKeywordFilter.trim() || undefined : existing.excludeKeywordFilter,
+    minPrice: data.minPrice !== undefined ? (data.minPrice ? Number(data.minPrice) : undefined) : existing.minPrice,
+    maxPrice: data.maxPrice !== undefined ? (data.maxPrice ? Number(data.maxPrice) : undefined) : existing.maxPrice,
+    selectionStrategy: data.selectionStrategy || existing.selectionStrategy,
+    language: data.language || existing.language,
+    tone: data.tone || existing.tone,
+    customInstructions: data.customInstructions !== undefined ? data.customInstructions.trim() || undefined : existing.customInstructions,
+    includePriceInCaption: data.includePriceInCaption !== undefined ? Boolean(data.includePriceInCaption) : existing.includePriceInCaption,
+    emojiLevel: data.emojiLevel || existing.emojiLevel,
+    channelId: data.channelId !== undefined ? data.channelId.trim() || undefined : existing.channelId,
+    buttonText: data.buttonText !== undefined ? data.buttonText.trim() : existing.buttonText,
+    scheduleType: data.scheduleType || existing.scheduleType,
+    intervalMinutes: data.intervalMinutes !== undefined ? Number(data.intervalMinutes) : existing.intervalMinutes,
+    cronExpression: data.cronExpression !== undefined ? data.cronExpression.trim() : existing.cronExpression
+  };
+
+  workflows[index] = updated;
+
+  res.json({
+    success: true,
+    workflow: updated
+  });
+});
+
+// 4. Delete workflow
+app.delete('/api/workflows/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const index = workflows.findIndex((w) => w.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: 'Workflow-ul nu a fost găsit.' });
+  }
+
+  const removed = workflows.splice(index, 1)[0];
+  res.json({
+    success: true,
+    message: `Workflow-ul "${removed.name}" a fost șters.`
+  });
+});
+
+// 5. Toggle active state
+app.post('/api/workflows/:id/toggle', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const wf = workflows.find((w) => w.id === id);
+
+  if (!wf) {
+    return res.status(404).json({ error: 'Workflow-ul nu a fost găsit.' });
+  }
+
+  wf.isActive = !wf.isActive;
+  res.json({
+    success: true,
+    isActive: wf.isActive,
+    workflow: wf
+  });
+});
+
+// 6. Run single workflow
+app.post('/api/workflows/:id/run', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const wf = workflows.find((w) => w.id === id);
+
+  if (!wf) {
+    return res.status(404).json({ error: 'Workflow-ul nu a fost găsit.' });
+  }
+
+  try {
+    const result = await executeWorkflow(wf, {
+      token: req.body?.token,
+      channelId: req.body?.channelId,
+      feedUrl: req.body?.feedUrl
+    });
+
+    res.json({
+      success: true,
+      workflow: wf,
+      ...result
+    });
+  } catch (err: any) {
+    console.error('Error running workflow:', err);
+    res.status(500).json({
+      success: false,
+      workflow: wf,
+      error: err.message || 'Eroare la execuția workflow-ului'
+    });
+  }
+});
+
+// 7. Export GitHub Actions YAML for this workflow
+app.get('/api/workflows/:id/github-actions-yaml', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const wf = workflows.find((w) => w.id === id);
+
+  if (!wf) {
+    return res.status(404).json({ error: 'Workflow-ul nu a fost găsit.' });
+  }
+
+  const cronVal = wf.cronExpression || (wf.intervalMinutes >= 60 ? `0 */${Math.floor(wf.intervalMinutes / 60)} * * *` : `*/${wf.intervalMinutes} * * * *`);
+  const safeName = wf.name.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Telegram Affiliate Workflow';
+
+  const yamlContent = `name: "${safeName}"
+
+on:
+  schedule:
+    - cron: '${cronVal}'
+  workflow_dispatch:
+
+jobs:
+  run-telegram-affiliate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout cod
+        uses: actions/checkout@v4
+
+      - name: Configurare Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Instalare dependente
+        run: npm ci
+
+      - name: Executare Workflow Telegram (${wf.id})
+        env:
+          TELEGRAM_BOT_TOKEN: \${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: \${{ secrets.TELEGRAM_CHANNEL_ID }}
+          GEMINI_API_KEY: \${{ secrets.GEMINI_API_KEY }}
+          FEED_URL: \${{ secrets.FEED_URL }}
+        run: |
+          npx tsx scripts/run-workflow.ts --workflow="${wf.id}"
+`;
+
+  res.json({
+    success: true,
+    workflowId: wf.id,
+    fileName: `${safeName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.yml`,
+    yaml: yamlContent
+  });
+});
+
 
 // Telegram Bot Verification / Info endpoint
 app.post('/api/telegram/test-bot', async (req: Request, res: Response) => {
