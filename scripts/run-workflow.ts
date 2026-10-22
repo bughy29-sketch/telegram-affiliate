@@ -79,19 +79,20 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
-async function generateWithRetry(prompt: string, retries = 5, delay = 5000): Promise<string> {
+async function generateWithRetry(prompt: string, retries = 5, delay = 4000): Promise<string> {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: prompt,
       });
       return response.text || "Super ofertă disponibilă!";
     } catch (err: any) {
       console.warn(`⚠️ Încercarea ${i + 1} a eșuat. Eroare: ${err.message || err}`);
       if (i < retries - 1) {
-        console.log(`⏳ Așteptăm ${delay / 1000} secunde înainte de reîncercare...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const currentDelay = delay * (i + 1);
+        console.log(`⏳ Așteptăm ${currentDelay / 1000} secunde înainte de reîncercare...`);
+        await new Promise((resolve) => setTimeout(resolve, currentDelay));
       } else {
         throw err;
       }
