@@ -25,24 +25,37 @@ async function parseFeed(): Promise<Product[]> {
 
     console.log("STRUCTURĂ XML:", JSON.stringify(result, null, 2).substring(0, 500));
 
-    const items = result.rss?.channel?.item || result.feed?.entry || [];
+    // Adaptat pentru structura găsită în XML (products.product)
+    const items = result.products?.product || result.rss?.channel?.item || result.feed?.entry || [];
     const products: Product[] = [];
 
     for (const item of items) {
-      const title = item.title || "Produs";
-      const link = item.link || "";
-      const description = item.description || "";
+      // Preluăm câmpurile specifice din noul format de feed
+      const title = item.product_name || item.title || "Produs";
+      const link = item.product_aff_link || item.link || "";
+      const description = item.product_desc || item.description || "";
       
       let imageUrl = "";
+      // Verificăm atât enclosure, cât și eventuale câmpuri directe pentru imagini
       if (item.enclosure && item.enclosure["@_url"]) {
         imageUrl = item.enclosure["@_url"];
+      } else if (item.image_url) {
+        imageUrl = item.image_url;
+      } else if (item.image) {
+        imageUrl = item.image;
+      }
+
+      // Dacă linkul afiliat începe cu '//', adăugăm 'https:' în față
+      let formattedAffiliateUrl = typeof link === "string" ? link : "";
+      if (formattedAffiliateUrl.startsWith("//")) {
+        formattedAffiliateUrl = "https:" + formattedAffiliateUrl;
       }
 
       products.push({
         title: typeof title === "string" ? title : "Produs",
         description: typeof description === "string" ? description : "",
         imageUrl: imageUrl,
-        affiliateUrl: typeof link === "string" ? link : ""
+        affiliateUrl: formattedAffiliateUrl
       });
     }
 
