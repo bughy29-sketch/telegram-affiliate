@@ -92,7 +92,7 @@ async function generateWithRetry(prompt: string, retries = 3, delay = 3000): Pro
   for (let i = 0; i < retries; i++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.0-flash",
         contents: prompt,
       });
       return response.text || "Super ofertă disponibilă!";
