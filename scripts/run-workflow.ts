@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+iimport { GoogleGenAI } from "@google/genai";
 import { XMLParser } from "fast-xml-parser";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -22,6 +22,9 @@ async function parseFeed(): Promise<Product[]> {
 
     const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
     const result = parser.parse(xmlData);
+
+    // Linia adăugată pentru verificarea structurii în loguri
+    console.log("STRUCTURĂ XML:", JSON.stringify(result, null, 2).substring(0, 500));
 
     const items = result.rss?.channel?.item || result.feed?.entry || [];
     const products: Product[] = [];
