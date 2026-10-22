@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Pasul D: Rulează scriptul și îi transmite secretele
+      # Pasul D: Rulează scriptul și îi transmite secretele 
       - name: Executare main.py
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
