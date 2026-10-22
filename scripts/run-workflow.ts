@@ -88,6 +88,28 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
+// Funcție ajutătoare pentru generare cu încercări multiple în caz de eroare 503
+async function generateWithRetry(prompt: string, retries = 3, delay = 3000): Promise<string> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: prompt,
+      });
+      return response.text || "Super ofertă disponibilă!";
+    } catch (err: any) {
+      console.warn(`⚠️ Încercarea ${i + 1} a eșuat. Eroare: ${err.message || err}`);
+      if (i < retries - 1) {
+        console.log(`⏳ Așteptăm ${delay / 1000} secunde înainte de reîncercare...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw new Error("S-au epuizat încercările pentru Gemini API.");
+}
+
 async function run() {
   console.log("📥 Se descarcă feed-ul de produse...");
   const products = await parseFeed();
@@ -102,12 +124,7 @@ async function run() {
   
   const prompt = `Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:\n- Titlu: ${prod.title}\n- Descriere: ${prod.description}\nReguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.8-flash",
-    contents: prompt,
-  });
-
-  const postText = response.text || "Super ofertă disponibilă!";
+  const postText = await generateWithRetry(prompt);
 
   console.log("📤 Publicăm pe Telegram...");
   await sendToTelegram(prod.imageUrl, postText, prod.affiliateUrl);
