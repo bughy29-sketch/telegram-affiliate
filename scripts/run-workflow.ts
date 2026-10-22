@@ -79,10 +79,11 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
-// Listă de modele ordonate pentru fallback în caz de erori de cotă sau suprasolicitare
-const MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+async function generateWithFallback(prod: Product): Promise<string> {
+  const MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
 
-async function generateWithFallback(prompt: string): Promise<string> {
+  const prompt = `Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:\n- Titlu: ${prod.title}\n- Descriere: ${prod.description}\nReguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.`;
+
   for (const modelName of MODELS_TO_TRY) {
     try {
       console.log(`🤖 Încercăm generarea cu modelul: ${modelName}`);
@@ -95,28 +96,28 @@ async function generateWithFallback(prompt: string): Promise<string> {
       }
     } catch (err: any) {
       console.warn(`⚠️ Modelul ${modelName} a eșuat: ${err.message || err}`);
-      // Dacă e eroare de cotă (429), trecem imediat la următorul model din listă
       continue;
     }
   }
-  return "Super ofertă disponibilă!";
+
+  // Fallback inteligent dacă toate modelele eșuează: folosește titlul produsului
+  console.log("⚠️ Se folosește textul de rezervă bazat pe produs.");
+  return `🔥 **Super Ofertă disponibilă!**\n\n📦 ${prod.title}\n\nNu rata această oportunitate! Verifică detaliile de mai jos 👇`;
 }
 
 async function run() {
   console.log("📥 Se descarcă feed-ul de produse...");
   const products = await parseFeed();
 
-  if (products.length === 0) {
+  if (products.length ===0) {
     console.log("❌ Nu s-au găsit produse în feed.");
     return;
-  }
+}
 
   const prod = products[0];
   console.log(`🤖 Generăm textul pentru: ${prod.title}`);
   
-  const prompt = `Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:\n- Titlu: ${prod.title}\n- Descriere: ${prod.description}\nReguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.`;
-
-  const postText = await generateWithFallback(prompt);
+  const postText = await generateWithFallback(prod);
 
   console.log("📤 Publicăm pe Telegram...");
   await sendToTelegram(prod.imageUrl, postText, prod.affiliateUrl);
