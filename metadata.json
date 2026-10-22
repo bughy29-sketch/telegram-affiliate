@@ -1,0 +1,8 @@
+{
+  "name": "Telegram Affiliate Bot & Dashboard",
+  "description": "Automated affiliate marketing platform that parses product XML feeds, generates energetic Telegram posts using Gemini AI, and publishes rich deal cards with inline affiliate buttons.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
