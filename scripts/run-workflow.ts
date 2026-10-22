@@ -26,21 +26,13 @@ async function parseFeed(): Promise<Product[]> {
     const items = result.products?.product || result.rss?.channel?.item || result.feed?.entry || [];
     const products: Product[] = [];
 
-    if (items.length > 0) {
-      // Afișează toate proprietățile primului produs pentru a identifica cheia corectă a imaginii
-      console.log("🔍 Proprietăți produs:", items[0]);
-    }
-
     for (const item of items) {
       const title = item.product_name || item.title || "Produs";
       const link = item.product_aff_link || item.link || "";
       const description = item.product_desc || item.description || "";
       
-      // Verificăm mai multe variante posibile pentru linkul imaginii
-      let imageUrl = item.image_link || item.image_url || item.image || item.picture || "";
-      if (item.enclosure && item.enclosure["@_url"]) {
-        imageUrl = item.enclosure["@_url"];
-      }
+      // Preluăm imaginea folosind cheia corectă din feed: product_pic
+      const imageUrl = item.product_pic || item.image_link || item.image_url || item.image || item.picture || "";
 
       let formattedAffiliateUrl = typeof link === "string" ? link : "";
       if (formattedAffiliateUrl.startsWith("//")) {
