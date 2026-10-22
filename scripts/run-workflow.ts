@@ -79,26 +79,27 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
-async function generateWithRetry(prompt: string, retries = 5, delay = 4000): Promise<string> {
-  for (let i = 0; i < retries; i++) {
+// Listă de modele ordonate pentru fallback în caz de erori de cotă sau suprasolicitare
+const MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+
+async function generateWithFallback(prompt: string): Promise<string> {
+  for (const modelName of MODELS_TO_TRY) {
     try {
+      console.log(`🤖 Încercăm generarea cu modelul: ${modelName}`);
       const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: modelName,
         contents: prompt,
       });
-      return response.text || "Super ofertă disponibilă!";
-    } catch (err: any) {
-      console.warn(`⚠️ Încercarea ${i + 1} a eșuat. Eroare: ${err.message || err}`);
-      if (i < retries - 1) {
-        const currentDelay = delay * (i + 1);
-        console.log(`⏳ Așteptăm ${currentDelay / 1000} secunde înainte de reîncercare...`);
-        await new Promise((resolve) => setTimeout(resolve, currentDelay));
-      } else {
-        throw err;
+      if (response.text) {
+        return response.text;
       }
+    } catch (err: any) {
+      console.warn(`⚠️ Modelul ${modelName} a eșuat: ${err.message || err}`);
+      // Dacă e eroare de cotă (429), trecem imediat la următorul model din listă
+      continue;
     }
   }
-  throw new Error("S-au epuizat încercările pentru Gemini API.");
+  return "Super ofertă disponibilă!";
 }
 
 async function run() {
@@ -111,11 +112,11 @@ async function run() {
   }
 
   const prod = products[0];
-  console.log(`🤖 Generăm textul cu Gemini pentru: ${prod.title}`);
+  console.log(`🤖 Generăm textul pentru: ${prod.title}`);
   
   const prompt = `Creează o postare scurtă, energică și persuasivă pentru Telegram pe baza acestui produs:\n- Titlu: ${prod.title}\n- Descriere: ${prod.description}\nReguli: Folosește emoji-uri, sub 100 de cuvinte, fără linkuri în text.`;
 
-  const postText = await generateWithRetry(prompt);
+  const postText = await generateWithFallback(prompt);
 
   console.log("📤 Publicăm pe Telegram...");
   await sendToTelegram(prod.imageUrl, postText, prod.affiliateUrl);
