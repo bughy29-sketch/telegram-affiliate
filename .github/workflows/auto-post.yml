@@ -4,7 +4,7 @@ on:
   schedule:
     # Rulează de 3 ori pe zi (la orele 08:00, 14:00 și 20:00 UTC)
     - cron: '0 8,14,20 * * *'
-  workflow_dispatch: Permite și rularea manuală din tab-ul Actions din GitHub
+  workflow_dispatch: # Permite și rularea manuală din tab-ul Actions din GitHub
 
 jobs:
   run-script:
