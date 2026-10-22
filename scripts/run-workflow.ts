@@ -88,12 +88,11 @@ async function sendToTelegram(imageUrl: string, caption: string, affiliateUrl: s
   }
 }
 
-// Funcție ajutătoare pentru generare cu încercări multiple în caz de eroare 503
 async function generateWithRetry(prompt: string, retries = 3, delay = 3000): Promise<string> {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: "gemini-1.5-flash",
         contents: prompt,
       });
       return response.text || "Super ofertă disponibilă!";
