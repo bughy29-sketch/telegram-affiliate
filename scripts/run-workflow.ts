@@ -23,23 +23,23 @@ async function parseFeed(): Promise<Product[]> {
     const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
     const result = parser.parse(xmlData);
 
-    console.log("STRUCTURĂ XML:", JSON.stringify(result, null, 2).substring(0, 500));
-
     const items = result.products?.product || result.rss?.channel?.item || result.feed?.entry || [];
     const products: Product[] = [];
+
+    if (items.length > 0) {
+      // Afișează toate proprietățile primului produs pentru a identifica cheia corectă a imaginii
+      console.log("🔍 Proprietăți produs:", items[0]);
+    }
 
     for (const item of items) {
       const title = item.product_name || item.title || "Produs";
       const link = item.product_aff_link || item.link || "";
       const description = item.product_desc || item.description || "";
       
-      let imageUrl = "";
+      // Verificăm mai multe variante posibile pentru linkul imaginii
+      let imageUrl = item.image_link || item.image_url || item.image || item.picture || "";
       if (item.enclosure && item.enclosure["@_url"]) {
         imageUrl = item.enclosure["@_url"];
-      } else if (item.image_url) {
-        imageUrl = item.image_url;
-      } else if (item.image) {
-        imageUrl = item.image;
       }
 
       let formattedAffiliateUrl = typeof link === "string" ? link : "";
@@ -50,7 +50,7 @@ async function parseFeed(): Promise<Product[]> {
       products.push({
         title: typeof title === "string" ? title : "Produs",
         description: typeof description === "string" ? description : "",
-        imageUrl: imageUrl,
+        imageUrl: typeof imageUrl === "string" ? imageUrl : "",
         affiliateUrl: formattedAffiliateUrl
       });
     }
